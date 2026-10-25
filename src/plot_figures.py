@@ -15,6 +15,13 @@ try:
 except Exception:
     HAS_MPL = False
 
+try:
+    import PIL  # noqa: F401
+
+    HAS_PIL = True
+except Exception:
+    HAS_PIL = False
+
 
 def load_metrics():
     rows = []
@@ -166,6 +173,127 @@ def fig3(path="figures/frequency_ablation.svg"):
         write_minimal_svg(path, "ablation")
 
 
+def _grok_window(rows):
+    """Epochs where test accuracy first passes 0.5 and 0.99, from the metrics records."""
+    start = next(r["epoch"] for r in rows if r["test_acc"] > 0.5)
+    end = next(r["epoch"] for r in rows if r["test_acc"] > 0.99)
+    return start, end
+
+
+def fig4(path="figures/grokking_animation.gif"):
+    """Hero animation from records/metrics.jsonl: loss and accuracy drawing over epochs."""
+    rows = load_metrics()
+    if not (HAS_MPL and HAS_PIL):
+        fig4_static()
+        return
+    from matplotlib.animation import PillowWriter
+
+    epochs = [r["epoch"] for r in rows]
+    tr_loss = [r["train_loss"] for r in rows]
+    te_loss = [r["test_loss"] for r in rows]
+    tr_acc = [r["train_acc"] for r in rows]
+    te_acc = [r["test_acc"] for r in rows]
+    grok_start, grok_end = _grok_window(rows)
+    stride = max(1, len(rows) // 250)
+    idxs = list(range(0, len(rows), stride))
+    if idxs[-1] != len(rows) - 1:
+        idxs.append(len(rows) - 1)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.2))
+    fig.suptitle("grok-and-roll: a + b mod 113 - one seed, 50,000 epochs", fontsize=11)
+    loss_top = max(max(tr_loss), max(te_loss)) * 1.25
+    loss_lo = min(min(tr_loss), min(te_loss)) * 0.5
+    for ax, ylab in ((ax1, "loss (log scale)"), (ax2, "accuracy")):
+        ax.set_xlim(0, epochs[-1])
+        ax.set_xlabel("epoch")
+        ax.set_ylabel(ylab)
+    ax1.set_yscale("log")
+    ax1.set_ylim(loss_lo, loss_top)
+    ax2.set_ylim(-0.03, 1.08)
+    ax1.plot([], [], color="C0", lw=1.6, label="train")
+    ax1.plot([], [], color="C1", lw=1.6, label="test")
+    ax2.plot([], [], color="C0", lw=1.6, label="train")
+    ax2.plot([], [], color="C1", lw=1.6, label="test")
+    ax1.legend(loc="upper right", fontsize=8)
+    ax2.legend(loc="lower right", fontsize=8)
+    epoch_text = fig.text(0.995, 0.965, "", ha="right", va="top", fontsize=10)
+    span_drawn = False
+    markers = []
+    writer = PillowWriter(
+        fps=25, metadata={"Title": "grokking: train and test loss and accuracy"}
+    )
+    prev = 0
+    with writer.saving(fig, path, dpi=90):
+        for i in idxs:
+            ax1.plot(epochs[prev : i + 1], tr_loss[prev : i + 1], color="C0", lw=1.6)
+            ax1.plot(epochs[prev : i + 1], te_loss[prev : i + 1], color="C1", lw=1.6)
+            ax2.plot(epochs[prev : i + 1], tr_acc[prev : i + 1], color="C0", lw=1.6)
+            ax2.plot(epochs[prev : i + 1], te_acc[prev : i + 1], color="C1", lw=1.6)
+            prev = i
+            if not span_drawn and epochs[i] >= grok_start:
+                for ax in (ax1, ax2):
+                    ax.axvspan(grok_start, grok_end, color="C1", alpha=0.15, zorder=0)
+                ax2.text(
+                    (grok_start + grok_end) / 2,
+                    0.5,
+                    "grokking",
+                    rotation=90,
+                    ha="center",
+                    va="center",
+                    fontsize=9,
+                    color="C1",
+                )
+                span_drawn = True
+            for h in markers:
+                h.remove()
+            markers = [
+                ax1.plot(epochs[i], tr_loss[i], "o", color="C0", ms=4)[0],
+                ax1.plot(epochs[i], te_loss[i], "o", color="C1", ms=4)[0],
+                ax2.plot(epochs[i], tr_acc[i], "o", color="C0", ms=4)[0],
+                ax2.plot(epochs[i], te_acc[i], "o", color="C1", ms=4)[0],
+            ]
+            epoch_text.set_text(f"epoch {epochs[i]:,}")
+            writer.grab_frame()
+    plt.close(fig)
+
+
+def fig4_static(path="figures/grokking_phases.svg"):
+    """Static hero: the four phases as panels, for environments without Pillow."""
+    rows = load_metrics()
+    if not HAS_MPL:
+        write_minimal_svg(path, "grokking phases")
+        return
+    epochs = [r["epoch"] for r in rows]
+    train_done = next(r["epoch"] for r in rows if r["train_acc"] >= 1.0)
+    grok_start, grok_end = _grok_window(rows)
+    phases = [
+        ("memorization", 0, train_done),
+        ("plateau", train_done, grok_start),
+        ("grokking", grok_start, grok_end),
+        ("cleanup", grok_end, epochs[-1]),
+    ]
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6))
+    for ax, (name, lo, hi) in zip(axes.flat, phases):
+        ax.plot(epochs, [r["train_loss"] for r in rows], color="C0", lw=1.2)
+        ax.plot(epochs, [r["test_loss"] for r in rows], color="C1", lw=1.2)
+        ax.set_yscale("log")
+        ax.set_xlim(0, epochs[-1])
+        ax.set_xlabel("epoch")
+        ax.set_ylabel("loss (log scale)")
+        ax.axvspan(lo, hi, color="C1", alpha=0.15, zorder=0)
+        ax.set_title(name, fontsize=10)
+        ax2 = ax.twinx()
+        ax2.plot(
+            epochs, [r["train_acc"] for r in rows], color="C0", lw=1.0, linestyle=":"
+        )
+        ax2.plot(
+            epochs, [r["test_acc"] for r in rows], color="C1", lw=1.0, linestyle=":"
+        )
+        ax2.set_ylim(-0.03, 1.08)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def write_minimal_svg(path, title):
     with open(path, "w") as f:
         f.write(
@@ -178,7 +306,8 @@ def main():
     fig1()
     fig2()
     fig3()
-    print("done", HAS_MPL)
+    fig4()
+    print("done", HAS_MPL, HAS_PIL)
 
 
 if __name__ == "__main__":

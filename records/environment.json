@@ -1,0 +1,15 @@
+{
+  "python_identifier": "python3 on PATH",
+  "python_version": "3.9.6",
+  "torch_version": "2.8.0",
+  "numpy_version": "2.0.2",
+  "matplotlib_version": "3.9.4",
+  "pilot_cpu_epochs_per_sec": 15.51,
+  "pilot_mps_epochs_per_sec": 15.72,
+  "chosen_device": "mps",
+  "device_choice_ours": true,
+  "full_run_real_seconds": 2771.72,
+  "full_run_peak_rss_bytes": 424427520,
+  "determinism_hash_match": false,
+  "determinism_note": "Two 300-epoch MPS pilots produced different metric files; MPS run-to-run nondeterminism recorded as a finding, not a gate."
+}

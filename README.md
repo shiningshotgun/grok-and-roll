@@ -14,7 +14,7 @@ Train accuracy hits 1.0 by epoch 200 (`records/metrics.jsonl`). Test accuracy st
 
 ### The turn
 
-Between epochs 8,600 and 9,600, test accuracy sweeps from 0.55 to 0.99 (first epoch above 0.5: 8,600; above 0.99: 9,600; 1.0000 by 10,300), while test loss collapses from ~5.4 to ~0.03. That is grokking: the gap between memorizing the training set and generalizing closes in about a thousand epochs of training.
+Between epochs 8,600 and 9,600, test accuracy sweeps from 0.55 to 0.99 (first epoch above 0.5: 8,600; above 0.99: 9,600; 1.0000 by 10,300), while test loss collapses from ~3.8 to ~0.03. That is grokking: the gap between memorizing the training set and generalizing closes in about a thousand epochs of training.
 
 ### The five frequencies
 

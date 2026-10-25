@@ -89,11 +89,11 @@ def fig3():
     per_key = ab["per_key_exclusion"]
     nonkey = ab["nonkey_exclusion"]
     if HAS_MPL:
-        labels = [f"k={k}" for k in K] + [f"nk={k}" for k in nonkey]
-        vals = [per_key[str(k)] if str(k) in per_key else per_key[k] for k in K] + [nonkey[str(k)] if str(k) in nonkey else nonkey[k] for k in nonkey]
-        # handle key types
+        K = [int(k) for k in K]
         pk = {int(k): v for k, v in per_key.items()}
         nk = {int(k): v for k, v in nonkey.items()}
+        nonkey = sorted(nk.keys())
+        labels = [f"k={k}" for k in K] + [f"nk={k}" for k in nonkey]
         vals = [pk[k] for k in K] + [nk[k] for k in nonkey]
         fig, ax = plt.subplots(figsize=(8, 4))
         ax.bar(labels, vals)

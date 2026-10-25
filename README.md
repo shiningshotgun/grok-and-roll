@@ -1,12 +1,57 @@
 # grok-and-roll
 
-A 1-layer transformer trained on modular addition (a + b mod 113) memorizes the 30% training split almost immediately, then - long after train accuracy hits 100% while test accuracy stays near chance - it suddenly generalizes. This run reproduces that grokking phenomenon and shows, using the Fourier-basis analysis of Nanda, Chan, Lieberum, Smith & Steinhardt (ICLR 2023), that the generalizing circuit (a Fourier-multiplication algorithm over key frequencies) forms gradually during the memorization plateau and is then cleaned up by weight decay: the network's Fourier content becomes sparse (Gini rises), the norm of the weights drops, and ablating any key frequency damages the final model.
+A one-layer transformer memorizes `a + b mod 113` within 200 epochs, sits with near-chance test accuracy for 8,000+ epochs, then suddenly generalizes - the grokking phenomenon of Nanda, Chan, Lieberum, Smith & Steinhardt (ICLR 2023), reproduced from scratch and dissected with the paper's mechanistic tools.
 
-## Sources
+![Grokking animation: train and test loss and accuracy drawing over 50,000 epochs](figures/grokking_animation.gif)
 
-- Paper: https://arxiv.org/abs/2301.05217 (ICLR 2023) - specifications for the architecture, optimizer, split, progress measures, and ablation protocol were taken from its text.
-- Author walkthrough: https://www.neelnanda.io/grokking-paper - used as corroboration of the paper's narrative and phase description.
-- Authors' code: https://github.com/mechanistic-interpretability-grokking/progress-measures-paper - consulted as read-only provenance for configuration details. It carries NO LICENSE file, so no code or checkpoints were copied or downloaded; everything here is independently reimplemented from the written specifications.
+*One seed, 50,000 epochs, drawn from `records/metrics.jsonl`; the loss panel is log-scale. The shaded band marks epochs 8,600-9,600, where test accuracy sweeps from 0.55 to 0.99 while test loss collapses.*
+
+## How the run unfolded
+
+### The plateau
+
+Train accuracy hits 1.0 by epoch 200 (`records/metrics.jsonl`). Test accuracy stays below 0.31 for the next 8,000+ epochs while test loss keeps climbing to its peak, 29.96 around epoch 1,700 - the model is a lookup table that is still growing. The progress measures show what the headline numbers hide: through the whole plateau, loss restricted to the five key frequencies falls steadily, while loss through the excluded frequencies rises from 4.76 toward 8.78 (`records/progress_measures.jsonl`). A generalizing circuit is assembling underneath the memorizer.
+
+### The turn
+
+Between epochs 8,600 and 9,600, test accuracy sweeps from 0.55 to 0.99 (first epoch above 0.5: 8,600; above 0.99: 9,600; 1.0000 by 10,300), while test loss collapses from ~5.4 to ~0.03. That is grokking: the gap between memorizing the training set and generalizing closes in about a thousand epochs of training.
+
+### The five frequencies
+
+The Fourier analysis of the final model (the paper's method, independently reimplemented) finds five key frequencies, K = [14, 15, 35, 42, 52] (`records/key_freqs.json`) - the same count as the paper's analyzed model, four of the five identical to its set. The generalizing circuit is a Fourier-multiplication algorithm over these frequencies.
+
+### The ablation test
+
+![Frequency ablation on a log-scale loss axis](figures/frequency_ablation.svg)
+
+*Log-scale loss axis. The restricted loss is exactly 0.0 - the float32 floor - so it is drawn as the green line at the axis floor, not as a small positive bar.*
+
+Keep only the five key frequencies and the model still solves the task: restricted loss 0.0 (exactly zero in float32). Remove them and loss jumps to 8.78, worse than guessing uniformly. Ablating any single key frequency hurts (0.0085-0.228); ablating the strongest non-key frequencies barely registers (~0.00020, indistinguishable from the unablated 2.02e-04).
+
+## Results (from records only)
+
+- Final metrics (epoch 50,000, `records/metrics.jsonl`): train_loss 7.66e-08, test_loss 2.88e-04, train_acc 1.0000, test_acc 0.99989. Test accuracy crossed 0.99 at epoch 9,600 and reached 1.0000 by 10,300.
+- Key frequencies (`records/key_freqs.json`, final snapshot, neuron-variance method): K = [14, 15, 35, 42, 52] with per-neuron support {14: 60, 15: 115, 35: 101, 42: 127, 52: 109}.
+- Final-model losses (`records/ablation.jsonl`): unablated 2.02e-04; restricted 0.0; excluded 8.78. Single-frequency exclusion: key frequencies give 0.0085-0.228; the five lowest non-key frequencies (1-5) all stay at ~0.00020.
+- Progress measures (`records/progress_measures.jsonl`): excluded loss rises from 4.76 (epoch 0) to 8.78 (epoch 50,000); Gini(W_E) rises 0.035 -> 0.62, Gini(W_U) 0.032 -> 0.67; sum of squared weights falls 1783 -> 973 (peaking ~3658 during memorization).
+- Runtime (`records/environment.json`): 2771.72 s real, peak RSS 424427520 bytes (MPS).
+
+> **One-seed caveat (observation only):** this run is one seed, and it showed early test-loss spikes plus post-cleanup oscillations in Gini and weight norm. The paper's published curves average five seeds; whether those wiggles are seed noise is not established here.
+
+## Reproduce
+
+```bash
+# Stage 0-1: scaffold, implementation, unit tests
+python3 -m unittest discover -s tests -v
+# Stage 2: pilots (device choice + determinism diagnostic)
+/usr/bin/time -l python3 -m src.train --device cpu --epochs 300 > logs/pilot_cpu.log 2>&1
+/usr/bin/time -l python3 -m src.train --device mps --epochs 300 > logs/pilot_mps.log 2>&1
+# full run
+/usr/bin/time -l python3 -m src.train --device mps --epochs 50000 > logs/run.log 2>&1
+# Stage 3-4: analysis and figures
+python3 -m src.analyze --device cpu
+python3 -m src.plot_figures
+```
 
 ## Scope compared with the paper
 
@@ -18,6 +63,9 @@ A 1-layer transformer trained on modular addition (a + b mod 113) memorizes the 
 - wandb logging replaced with local JSONL records (OURS); metrics cadence densified to every 100 epochs (OURS) from the authors' every-1000.
 
 ## Settings
+
+<details>
+<summary>Full settings table (verified / OURS)</summary>
 
 | Setting | Value | Source |
 |---|---|---|
@@ -39,28 +87,13 @@ A 1-layer transformer trained on modular addition (a + b mod 113) memorizes the 
 | Logging | local records/*.jsonl; snapshots/ untracked | OURS |
 | Seed count | 1 | OURS |
 
-## Reproduce
+</details>
 
-```bash
-# Stage 0-1: scaffold, implementation, unit tests
-python3 -m unittest discover -s tests -v
-# Stage 2: pilots (device choice + determinism diagnostic)
-/usr/bin/time -l python3 -m src.train --device cpu --epochs 300 > logs/pilot_cpu.log 2>&1
-/usr/bin/time -l python3 -m src.train --device mps --epochs 300 > logs/pilot_mps.log 2>&1
-# full run
-/usr/bin/time -l python3 -m src.train --device mps --epochs 50000 > logs/run.log 2>&1
-# Stage 3-4: analysis and figures
-python3 -m src.analyze --device cpu
-python3 -m src.plot_figures
-```
+## Sources
 
-## Results (from records only)
-
-- Final metrics (records/metrics.jsonl, epoch 50000): train_loss 7.66e-08, test_loss 2.88e-04, train_acc 1.0000, test_acc 0.99989. The run grokked: train accuracy reached ~1.0 by epoch 200; test accuracy crossed 0.99 at epoch 9600 and was 1.0000 by epoch 10000.
-- Key frequencies (records/key_freqs.json, from the final snapshot by the neuron-variance method): K = [14, 15, 35, 42, 52] with per-neuron support {14: 60, 15: 115, 35: 101, 42: 127, 52: 109}.
-- Final-model losses (records/ablation.jsonl): unablated 2.02e-04; restricted 0.0; excluded 8.78. Single-frequency exclusion: key frequencies give 0.0085-0.228; lowest five non-key frequencies (1-5) all stay at ~0.00020.
-- Progress measures (records/progress_measures.jsonl): excluded loss rises from 4.76 (epoch 0) to 8.78 (epoch 50000) while train/test loss stay flat at the plateau; Gini(W_E) rises 0.035 -> 0.62, Gini(W_U) 0.032 -> 0.67; sum of squared weights falls 1783 -> 973 (peaking ~3658 during memorization).
-- Runtime (logs/run.log): 2771.72 s real; peak RSS 424427520 bytes.
+- Paper: https://arxiv.org/abs/2301.05217 (ICLR 2023) - specifications for the architecture, optimizer, split, progress measures, and ablation protocol were taken from its text.
+- Author walkthrough: https://www.neelnanda.io/grokking-paper - used as corroboration of the paper's narrative and phase description.
+- Authors' code: https://github.com/mechanistic-interpretability-grokking/progress-measures-paper - consulted as read-only provenance for configuration details. It carries NO LICENSE file, so no code or checkpoints were copied or downloaded; everything here is independently reimplemented from the written specifications.
 
 ## Honest limits
 
@@ -68,4 +101,4 @@ python3 -m src.plot_figures
 - MPS numerics differ from cuda and from CPU; a 300-epoch CPU-vs-MPS fidelity comparison and a run-to-run hash check (mismatch - MPS nondeterminism) are recorded in records/environment.json.
 - No direct comparison against the authors' code was performed (no license; independent reimplementation).
 - Choices the paper is silent on (init seed, device, snapshot schedule, metrics cadence, accuracy convention, Gini DC/real-basis handling, logging) are labeled OURS above; the most likely-effect-bearing of these is the device (numerics only) and the init seed (which frequencies get selected could shift).
-- Figures were validated programmatically (XML parse, viewBox, element count) but were not pixel-inspected by the agent; see the run report's VISUAL QA line.
+- Figures were validated programmatically at run time (XML parse, viewBox, element count) and pixel-checked during the documentation pass: the animation, its sampled frames, and the log-scale ablation figure were rendered to PNG and inspected; see the run report's VISUAL QA line.

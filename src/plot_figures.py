@@ -7,8 +7,10 @@ import numpy as np
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     HAS_MPL = True
 except Exception:
     HAS_MPL = False
@@ -50,10 +52,16 @@ def fig1():
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
         ax1.plot(epochs, tr_loss, label="train loss")
         ax1.plot(epochs, te_loss, label="test loss")
-        ax1.set_xlabel("epoch"); ax1.set_ylabel("loss"); ax1.set_title("Loss (one seed)"); ax1.legend()
+        ax1.set_xlabel("epoch")
+        ax1.set_ylabel("loss")
+        ax1.set_title("Loss (one seed)")
+        ax1.legend()
         ax2.plot(epochs, tr_acc, label="train acc")
         ax2.plot(epochs, te_acc, label="test acc")
-        ax2.set_xlabel("epoch"); ax2.set_ylabel("acc"); ax2.set_title("Accuracy (one seed)"); ax2.legend()
+        ax2.set_xlabel("epoch")
+        ax2.set_ylabel("acc")
+        ax2.set_title("Accuracy (one seed)")
+        ax2.legend()
         fig.tight_layout()
         fig.savefig("figures/train_test_curves.svg")
         plt.close(fig)
@@ -67,15 +75,26 @@ def fig2():
     epochs = [r["epoch"] for r in rows]
     if HAS_MPL:
         fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-        axes[0, 0].plot(epochs, [r["excluded_loss"] for r in rows], label="excluded loss")
-        axes[0, 0].set_title("Excluded loss"); axes[0, 0].set_xlabel("epoch")
-        axes[0, 1].plot(epochs, [r["restricted_loss"] for r in rows], label="restricted loss")
-        axes[0, 1].set_title("Restricted loss"); axes[0, 1].set_xlabel("epoch")
+        axes[0, 0].plot(
+            epochs, [r["excluded_loss"] for r in rows], label="excluded loss"
+        )
+        axes[0, 0].set_title("Excluded loss")
+        axes[0, 0].set_xlabel("epoch")
+        axes[0, 1].plot(
+            epochs, [r["restricted_loss"] for r in rows], label="restricted loss"
+        )
+        axes[0, 1].set_title("Restricted loss")
+        axes[0, 1].set_xlabel("epoch")
         axes[1, 0].plot(epochs, [r["gini_W_E"] for r in rows], label="gini W_E")
         axes[1, 0].plot(epochs, [r["gini_W_U"] for r in rows], label="gini W_U")
-        axes[1, 0].set_title("Gini"); axes[1, 0].set_xlabel("epoch"); axes[1, 0].legend()
-        axes[1, 1].plot(epochs, [r["sum_sq_weights"] for r in rows], label="sum sq weights")
-        axes[1, 1].set_title("Sum squared weights"); axes[1, 1].set_xlabel("epoch")
+        axes[1, 0].set_title("Gini")
+        axes[1, 0].set_xlabel("epoch")
+        axes[1, 0].legend()
+        axes[1, 1].plot(
+            epochs, [r["sum_sq_weights"] for r in rows], label="sum sq weights"
+        )
+        axes[1, 1].set_title("Sum squared weights")
+        axes[1, 1].set_xlabel("epoch")
         fig.tight_layout()
         fig.savefig("figures/progress_measures.svg")
         plt.close(fig)
@@ -83,34 +102,75 @@ def fig2():
         write_minimal_svg("figures/progress_measures.svg", "progress measures")
 
 
-def fig3():
+ABLATION_FLOOR = 1e-6  # axis floor for the log-scale loss axis
+
+
+def _ablation_figure(ab):
+    """Ablation bars on a log-scale loss axis, with the exact-zero restricted loss handled explicitly."""
+    K = [int(k) for k in ab["key_freqs"]]
+    pk = {int(k): v for k, v in ab["per_key_exclusion"].items()}
+    nk = {int(k): v for k, v in ab["nonkey_exclusion"].items()}
+    nonkey = sorted(nk.keys())
+    labels = [f"k={k}" for k in K] + [f"nk={k}" for k in nonkey]
+    vals = [pk[k] for k in K] + [nk[k] for k in nonkey]
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    ax.bar(labels, vals)
+    ax.set_yscale("log")
+    ax.set_ylim(bottom=ABLATION_FLOOR, top=30)
+    ax.axhline(
+        ab["unablated_loss"],
+        color="r",
+        linestyle="--",
+        label=f"unablated {ab['unablated_loss']:.2e}",
+    )
+    # restricted loss is exactly 0.0: a log axis cannot show 0, so draw it at
+    # the axis floor in a distinct style and label it explicitly.
+    ax.axhline(
+        ABLATION_FLOOR,
+        color="g",
+        linestyle=":",
+        linewidth=3,
+        label="restricted: exactly 0.0 (float32 floor)",
+    )
+    ax.axhline(
+        ab["excluded_loss"],
+        color="b",
+        linestyle="--",
+        label=f"excluded {ab['excluded_loss']:.2f}",
+    )
+    n = len(labels)
+    ax.annotate(
+        "restricted loss is exactly 0.0 (float32 floor),\n"
+        "not a small positive bar: drawn at the axis floor",
+        xy=((n - 1) / 2, ABLATION_FLOOR * 1.4),
+        xytext=((n - 1) / 2, 2.0),
+        ha="center",
+        va="top",
+        fontsize=9,
+        arrowprops=dict(arrowstyle="->", color="g", lw=1.2),
+    )
+    ax.set_ylabel("loss (log scale)")
+    ax.set_title("Frequency ablation (log scale)")
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5), fontsize=9)
+    fig.tight_layout()
+    return fig
+
+
+def fig3(path="figures/frequency_ablation.svg"):
     ab = load_ablation()
-    K = ab["key_freqs"]
-    per_key = ab["per_key_exclusion"]
-    nonkey = ab["nonkey_exclusion"]
     if HAS_MPL:
-        K = [int(k) for k in K]
-        pk = {int(k): v for k, v in per_key.items()}
-        nk = {int(k): v for k, v in nonkey.items()}
-        nonkey = sorted(nk.keys())
-        labels = [f"k={k}" for k in K] + [f"nk={k}" for k in nonkey]
-        vals = [pk[k] for k in K] + [nk[k] for k in nonkey]
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.bar(labels, vals)
-        ax.axhline(ab["unablated_loss"], color="r", linestyle="--", label="unablated")
-        ax.axhline(ab["restricted_loss"], color="g", linestyle="--", label="restricted")
-        ax.axhline(ab["excluded_loss"], color="b", linestyle="--", label="excluded")
-        ax.set_ylabel("loss"); ax.set_title("Frequency ablation"); ax.legend()
-        fig.tight_layout()
-        fig.savefig("figures/frequency_ablation.svg")
+        fig = _ablation_figure(ab)
+        fig.savefig(path)
         plt.close(fig)
     else:
-        write_minimal_svg("figures/frequency_ablation.svg", "ablation")
+        write_minimal_svg(path, "ablation")
 
 
 def write_minimal_svg(path, title):
     with open(path, "w") as f:
-        f.write(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text x="10" y="50">{title}</text></svg>')
+        f.write(
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text x="10" y="50">{title}</text></svg>'
+        )
 
 
 def main():
